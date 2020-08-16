@@ -2,19 +2,19 @@
 https://github.com/kpzhang93/MTCNN_face_detection_alignment
 """
 # MIT License
-# 
+#
 # Copyright (c) 2016 David Sandberg
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -37,14 +37,14 @@ from six import string_types, iteritems
 
 
 def layer(op):
-    '''Decorator for composable network layers.'''
+    """Decorator for composable network layers."""
 
     def layer_decorated(self, *args, **kwargs):
         # Automatically set a name if not provided.
-        name = kwargs.setdefault('name', self.get_unique_name(op.__name__))
+        name = kwargs.setdefault("name", self.get_unique_name(op.__name__))
         # Figure out the layer inputs.
         if len(self.terminals) == 0:
-            raise RuntimeError('No input variables found for layer %s.' % name)
+            raise RuntimeError("No input variables found for layer %s." % name)
         elif len(self.terminals) == 1:
             layer_input = self.terminals[0]
         else:
@@ -75,31 +75,33 @@ class Network(object):
         self.setup()
 
     def setup(self):
-        '''Construct the network. '''
-        raise NotImplementedError('Must be implemented by the subclass.')
+        """Construct the network. """
+        raise NotImplementedError("Must be implemented by the subclass.")
 
     def load(self, data_path, session, ignore_missing=False):
-        '''Load network weights.
+        """Load network weights.
         data_path: The path to the numpy-serialized network weights
         session: The current TensorFlow session
         ignore_missing: If true, serialized weights for missing layers are ignored.
-        '''
-        data_dict = np.load(data_path, encoding='latin1').item()  # pylint: disable=no-member
+        """
+        data_dict = np.load(
+            data_path, encoding="latin1", allow_pickle=True
+        ).item()  # pylint: disable=no-member
 
         for op_name in data_dict:
-            with tf.variable_scope(op_name, reuse=True):
+            with tf.compat.v1.variable_scope(op_name, reuse=True):
                 for param_name, data in iteritems(data_dict[op_name]):
                     try:
-                        var = tf.get_variable(param_name)
+                        var = tf.compat.v1.get_variable(param_name)
                         session.run(var.assign(data))
                     except ValueError:
                         if not ignore_missing:
                             raise
 
     def feed(self, *args):
-        '''Set the input(s) for the next operation by replacing the terminal nodes.
+        """Set the input(s) for the next operation by replacing the terminal nodes.
         The arguments can be either layer names or the actual layers.
-        '''
+        """
         assert len(args) != 0
         self.terminals = []
         for fed_layer in args:
@@ -107,42 +109,44 @@ class Network(object):
                 try:
                     fed_layer = self.layers[fed_layer]
                 except KeyError:
-                    raise KeyError('Unknown layer name fed: %s' % fed_layer)
+                    raise KeyError("Unknown layer name fed: %s" % fed_layer)
             self.terminals.append(fed_layer)
         return self
 
     def get_output(self):
-        '''Returns the current network output.'''
+        """Returns the current network output."""
         return self.terminals[-1]
 
     def get_unique_name(self, prefix):
-        '''Returns an index-suffixed unique name for the given prefix.
+        """Returns an index-suffixed unique name for the given prefix.
         This is used for auto-generating layer names based on the type-prefix.
-        '''
+        """
         ident = sum(t.startswith(prefix) for t, _ in self.layers.items()) + 1
-        return '%s_%d' % (prefix, ident)
+        return "%s_%d" % (prefix, ident)
 
     def make_var(self, name, shape):
-        '''Creates a new TensorFlow variable.'''
-        return tf.get_variable(name, shape, trainable=self.trainable)
+        """Creates a new TensorFlow variable."""
+        return tf.compat.v1.get_variable(name, shape, trainable=self.trainable)
 
     def validate_padding(self, padding):
-        '''Verifies that the padding is one of the supported ones.'''
-        assert padding in ('SAME', 'VALID')
+        """Verifies that the padding is one of the supported ones."""
+        assert padding in ("SAME", "VALID")
 
     @layer
-    def conv(self,
-             inp,
-             k_h,
-             k_w,
-             c_o,
-             s_h,
-             s_w,
-             name,
-             relu=True,
-             padding='SAME',
-             group=1,
-             biased=True):
+    def conv(
+        self,
+        inp,
+        k_h,
+        k_w,
+        c_o,
+        s_h,
+        s_w,
+        name,
+        relu=True,
+        padding="SAME",
+        group=1,
+        biased=True,
+    ):
         # Verify that the padding is acceptable
         self.validate_padding(padding)
         # Get the number of channels in the input
@@ -152,13 +156,13 @@ class Network(object):
         assert c_o % group == 0
         # Convolution for a given input and kernel
         convolve = lambda i, k: tf.nn.conv2d(i, k, [1, s_h, s_w, 1], padding=padding)
-        with tf.variable_scope(name) as scope:
-            kernel = self.make_var('weights', shape=[k_h, k_w, c_i // group, c_o])
+        with tf.compat.v1.variable_scope(name) as scope:
+            kernel = self.make_var("weights", shape=[k_h, k_w, c_i // group, c_o])
             # This is the common-case. Convolve the input without any further complications.
             output = convolve(inp, kernel)
             # Add the biases
             if biased:
-                biases = self.make_var('biases', [c_o])
+                biases = self.make_var("biases", [c_o])
                 output = tf.nn.bias_add(output, biases)
             if relu:
                 # ReLU non-linearity
@@ -167,24 +171,26 @@ class Network(object):
 
     @layer
     def prelu(self, inp, name):
-        with tf.variable_scope(name):
+        with tf.compat.v1.variable_scope(name):
             i = int(inp.get_shape()[-1])
-            alpha = self.make_var('alpha', shape=(i,))
+            alpha = self.make_var("alpha", shape=(i,))
             output = tf.nn.relu(inp) + tf.multiply(alpha, -tf.nn.relu(-inp))
         return output
 
     @layer
-    def max_pool(self, inp, k_h, k_w, s_h, s_w, name, padding='SAME'):
+    def max_pool(self, inp, k_h, k_w, s_h, s_w, name, padding="SAME"):
         self.validate_padding(padding)
-        return tf.nn.max_pool(inp,
-                              ksize=[1, k_h, k_w, 1],
-                              strides=[1, s_h, s_w, 1],
-                              padding=padding,
-                              name=name)
+        return tf.nn.max_pool(
+            inp,
+            ksize=[1, k_h, k_w, 1],
+            strides=[1, s_h, s_w, 1],
+            padding=padding,
+            name=name,
+        )
 
     @layer
     def fc(self, inp, num_out, name, relu=True):
-        with tf.variable_scope(name):
+        with tf.compat.v1.variable_scope(name):
             input_shape = inp.get_shape()
             if input_shape.ndims == 4:
                 # The input is spatial. Vectorize it first.
@@ -193,10 +199,12 @@ class Network(object):
                     dim *= int(d)
                 feed_in = tf.reshape(inp, [-1, dim])
             else:
-                feed_in, dim = (inp, input_shape[-1].value)
-            weights = self.make_var('weights', shape=[dim, num_out])
-            biases = self.make_var('biases', [num_out])
-            op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
+                feed_in, dim = (inp, input_shape[-1])
+                # feed_in, dim = (inp, input_shape[-1].value)
+            weights = self.make_var("weights", shape=[dim, num_out])
+            biases = self.make_var("biases", [num_out])
+            op = tf.compat.v1.nn.relu_layer if relu else tf.compat.v1.nn.xw_plus_b
+            # op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
             fc = op(feed_in, weights, biases, name=name)
             return fc
 
@@ -209,97 +217,121 @@ class Network(object):
 
     @layer
     def softmax(self, target, axis, name=None):
-        max_axis = tf.reduce_max(target, axis, keep_dims=True)
+        max_axis = tf.reduce_max(target, axis, keepdims=True)
         target_exp = tf.exp(target - max_axis)
-        normalize = tf.reduce_sum(target_exp, axis, keep_dims=True)
-        softmax = tf.div(target_exp, normalize, name)
+        normalize = tf.reduce_sum(target_exp, axis, keepdims=True)
+        softmax = tf.compat.v1.div(target_exp, normalize, name)
         return softmax
 
 
 class PNet(Network):
     def setup(self):
-        (self.feed('data')  # pylint: disable=no-value-for-parameter, no-member
-         .conv(3, 3, 10, 1, 1, padding='VALID', relu=False, name='conv1')
-         .prelu(name='PReLU1')
-         .max_pool(2, 2, 2, 2, name='pool1')
-         .conv(3, 3, 16, 1, 1, padding='VALID', relu=False, name='conv2')
-         .prelu(name='PReLU2')
-         .conv(3, 3, 32, 1, 1, padding='VALID', relu=False, name='conv3')
-         .prelu(name='PReLU3')
-         .conv(1, 1, 2, 1, 1, relu=False, name='conv4-1')
-         .softmax(3, name='prob1'))
+        (
+            self.feed("data")  # pylint: disable=no-value-for-parameter, no-member
+            .conv(3, 3, 10, 1, 1, padding="VALID", relu=False, name="conv1")
+            .prelu(name="PReLU1")
+            .max_pool(2, 2, 2, 2, name="pool1")
+            .conv(3, 3, 16, 1, 1, padding="VALID", relu=False, name="conv2")
+            .prelu(name="PReLU2")
+            .conv(3, 3, 32, 1, 1, padding="VALID", relu=False, name="conv3")
+            .prelu(name="PReLU3")
+            .conv(1, 1, 2, 1, 1, relu=False, name="conv4-1")
+            .softmax(3, name="prob1")
+        )
 
-        (self.feed('PReLU3')  # pylint: disable=no-value-for-parameter
-         .conv(1, 1, 4, 1, 1, relu=False, name='conv4-2'))
+        (
+            self.feed("PReLU3").conv(  # pylint: disable=no-value-for-parameter
+                1, 1, 4, 1, 1, relu=False, name="conv4-2"
+            )
+        )
 
 
 class RNet(Network):
     def setup(self):
-        (self.feed('data')  # pylint: disable=no-value-for-parameter, no-member
-         .conv(3, 3, 28, 1, 1, padding='VALID', relu=False, name='conv1')
-         .prelu(name='prelu1')
-         .max_pool(3, 3, 2, 2, name='pool1')
-         .conv(3, 3, 48, 1, 1, padding='VALID', relu=False, name='conv2')
-         .prelu(name='prelu2')
-         .max_pool(3, 3, 2, 2, padding='VALID', name='pool2')
-         .conv(2, 2, 64, 1, 1, padding='VALID', relu=False, name='conv3')
-         .prelu(name='prelu3')
-         .fc(128, relu=False, name='conv4')
-         .prelu(name='prelu4')
-         .fc(2, relu=False, name='conv5-1')
-         .softmax(1, name='prob1'))
+        (
+            self.feed("data")  # pylint: disable=no-value-for-parameter, no-member
+            .conv(3, 3, 28, 1, 1, padding="VALID", relu=False, name="conv1")
+            .prelu(name="prelu1")
+            .max_pool(3, 3, 2, 2, name="pool1")
+            .conv(3, 3, 48, 1, 1, padding="VALID", relu=False, name="conv2")
+            .prelu(name="prelu2")
+            .max_pool(3, 3, 2, 2, padding="VALID", name="pool2")
+            .conv(2, 2, 64, 1, 1, padding="VALID", relu=False, name="conv3")
+            .prelu(name="prelu3")
+            .fc(128, relu=False, name="conv4")
+            .prelu(name="prelu4")
+            .fc(2, relu=False, name="conv5-1")
+            .softmax(1, name="prob1")
+        )
 
-        (self.feed('prelu4')  # pylint: disable=no-value-for-parameter
-         .fc(4, relu=False, name='conv5-2'))
+        (
+            self.feed("prelu4").fc(  # pylint: disable=no-value-for-parameter
+                4, relu=False, name="conv5-2"
+            )
+        )
 
 
 class ONet(Network):
     def setup(self):
-        (self.feed('data')  # pylint: disable=no-value-for-parameter, no-member
-         .conv(3, 3, 32, 1, 1, padding='VALID', relu=False, name='conv1')
-         .prelu(name='prelu1')
-         .max_pool(3, 3, 2, 2, name='pool1')
-         .conv(3, 3, 64, 1, 1, padding='VALID', relu=False, name='conv2')
-         .prelu(name='prelu2')
-         .max_pool(3, 3, 2, 2, padding='VALID', name='pool2')
-         .conv(3, 3, 64, 1, 1, padding='VALID', relu=False, name='conv3')
-         .prelu(name='prelu3')
-         .max_pool(2, 2, 2, 2, name='pool3')
-         .conv(2, 2, 128, 1, 1, padding='VALID', relu=False, name='conv4')
-         .prelu(name='prelu4')
-         .fc(256, relu=False, name='conv5')
-         .prelu(name='prelu5')
-         .fc(2, relu=False, name='conv6-1')
-         .softmax(1, name='prob1'))
+        (
+            self.feed("data")  # pylint: disable=no-value-for-parameter, no-member
+            .conv(3, 3, 32, 1, 1, padding="VALID", relu=False, name="conv1")
+            .prelu(name="prelu1")
+            .max_pool(3, 3, 2, 2, name="pool1")
+            .conv(3, 3, 64, 1, 1, padding="VALID", relu=False, name="conv2")
+            .prelu(name="prelu2")
+            .max_pool(3, 3, 2, 2, padding="VALID", name="pool2")
+            .conv(3, 3, 64, 1, 1, padding="VALID", relu=False, name="conv3")
+            .prelu(name="prelu3")
+            .max_pool(2, 2, 2, 2, name="pool3")
+            .conv(2, 2, 128, 1, 1, padding="VALID", relu=False, name="conv4")
+            .prelu(name="prelu4")
+            .fc(256, relu=False, name="conv5")
+            .prelu(name="prelu5")
+            .fc(2, relu=False, name="conv6-1")
+            .softmax(1, name="prob1")
+        )
 
-        (self.feed('prelu5')  # pylint: disable=no-value-for-parameter
-         .fc(4, relu=False, name='conv6-2'))
+        (
+            self.feed("prelu5").fc(  # pylint: disable=no-value-for-parameter
+                4, relu=False, name="conv6-2"
+            )
+        )
 
-        (self.feed('prelu5')  # pylint: disable=no-value-for-parameter
-         .fc(10, relu=False, name='conv6-3'))
+        (
+            self.feed("prelu5").fc(  # pylint: disable=no-value-for-parameter
+                10, relu=False, name="conv6-3"
+            )
+        )
 
 
 def create_mtcnn(sess, model_path):
     if not model_path:
         model_path, _ = os.path.split(os.path.realpath(__file__))
 
-    with tf.variable_scope('pnet'):
-        data = tf.placeholder(tf.float32, (None, None, None, 3), 'input')
-        pnet = PNet({'data': data})
-        pnet.load(os.path.join(model_path, 'det1.npy'), sess)
-    with tf.variable_scope('rnet'):
-        data = tf.placeholder(tf.float32, (None, 24, 24, 3), 'input')
-        rnet = RNet({'data': data})
-        rnet.load(os.path.join(model_path, 'det2.npy'), sess)
-    with tf.variable_scope('onet'):
-        data = tf.placeholder(tf.float32, (None, 48, 48, 3), 'input')
-        onet = ONet({'data': data})
-        onet.load(os.path.join(model_path, 'det3.npy'), sess)
+    with tf.compat.v1.variable_scope("pnet"):
+        data = tf.compat.v1.placeholder(tf.float32, (None, None, None, 3), "input")
+        pnet = PNet({"data": data})
+        pnet.load(os.path.join(model_path, "det1.npy"), sess)
+    with tf.compat.v1.variable_scope("rnet"):
+        data = tf.compat.v1.placeholder(tf.float32, (None, 24, 24, 3), "input")
+        rnet = RNet({"data": data})
+        rnet.load(os.path.join(model_path, "det2.npy"), sess)
+    with tf.compat.v1.variable_scope("onet"):
+        data = tf.compat.v1.placeholder(tf.float32, (None, 48, 48, 3), "input")
+        onet = ONet({"data": data})
+        onet.load(os.path.join(model_path, "det3.npy"), sess)
 
-    pnet_fun = lambda img: sess.run(('pnet/conv4-2/BiasAdd:0', 'pnet/prob1:0'), feed_dict={'pnet/input:0': img})
-    rnet_fun = lambda img: sess.run(('rnet/conv5-2/conv5-2:0', 'rnet/prob1:0'), feed_dict={'rnet/input:0': img})
-    onet_fun = lambda img: sess.run(('onet/conv6-2/conv6-2:0', 'onet/conv6-3/conv6-3:0', 'onet/prob1:0'),
-                                    feed_dict={'onet/input:0': img})
+    pnet_fun = lambda img: sess.run(
+        ("pnet/conv4-2/BiasAdd:0", "pnet/prob1:0"), feed_dict={"pnet/input:0": img}
+    )
+    rnet_fun = lambda img: sess.run(
+        ("rnet/conv5-2/conv5-2:0", "rnet/prob1:0"), feed_dict={"rnet/input:0": img}
+    )
+    onet_fun = lambda img: sess.run(
+        ("onet/conv6-2/conv6-2:0", "onet/conv6-3/conv6-3:0", "onet/prob1:0"),
+        feed_dict={"onet/input:0": img},
+    )
     return pnet_fun, rnet_fun, onet_fun
 
 
@@ -337,17 +369,19 @@ def detect_face(img, minsize, pnet, rnet, onet, threshold, factor):
         out0 = np.transpose(out[0], (0, 2, 1, 3))
         out1 = np.transpose(out[1], (0, 2, 1, 3))
 
-        boxes, _ = generateBoundingBox(out1[0, :, :, 1].copy(), out0[0, :, :, :].copy(), scale, threshold[0])
+        boxes, _ = generateBoundingBox(
+            out1[0, :, :, 1].copy(), out0[0, :, :, :].copy(), scale, threshold[0]
+        )
 
         # inter-scale nms
-        pick = nms(boxes.copy(), 0.5, 'Union')
+        pick = nms(boxes.copy(), 0.5, "Union")
         if boxes.size > 0 and pick.size > 0:
             boxes = boxes[pick, :]
             total_boxes = np.append(total_boxes, boxes, axis=0)
 
     numbox = total_boxes.shape[0]
     if numbox > 0:
-        pick = nms(total_boxes.copy(), 0.7, 'Union')
+        pick = nms(total_boxes.copy(), 0.7, "Union")
         total_boxes = total_boxes[pick, :]
         regw = total_boxes[:, 2] - total_boxes[:, 0]
         regh = total_boxes[:, 3] - total_boxes[:, 1]
@@ -366,8 +400,15 @@ def detect_face(img, minsize, pnet, rnet, onet, threshold, factor):
         tempimg = np.zeros((24, 24, 3, numbox))
         for k in range(0, numbox):
             tmp = np.zeros((int(tmph[k]), int(tmpw[k]), 3))
-            tmp[dy[k] - 1:edy[k], dx[k] - 1:edx[k], :] = img[y[k] - 1:ey[k], x[k] - 1:ex[k], :]
-            if tmp.shape[0] > 0 and tmp.shape[1] > 0 or tmp.shape[0] == 0 and tmp.shape[1] == 0:
+            tmp[dy[k] - 1 : edy[k], dx[k] - 1 : edx[k], :] = img[
+                y[k] - 1 : ey[k], x[k] - 1 : ex[k], :
+            ]
+            if (
+                tmp.shape[0] > 0
+                and tmp.shape[1] > 0
+                or tmp.shape[0] == 0
+                and tmp.shape[1] == 0
+            ):
                 tempimg[:, :, :, k] = imresample(tmp, (24, 24))
             else:
                 return np.empty()
@@ -378,10 +419,12 @@ def detect_face(img, minsize, pnet, rnet, onet, threshold, factor):
         out1 = np.transpose(out[1])
         score = out1[1, :]
         ipass = np.where(score > threshold[1])
-        total_boxes = np.hstack([total_boxes[ipass[0], 0:4].copy(), np.expand_dims(score[ipass].copy(), 1)])
+        total_boxes = np.hstack(
+            [total_boxes[ipass[0], 0:4].copy(), np.expand_dims(score[ipass].copy(), 1)]
+        )
         mv = out0[:, ipass[0]]
         if total_boxes.shape[0] > 0:
-            pick = nms(total_boxes, 0.7, 'Union')
+            pick = nms(total_boxes, 0.7, "Union")
             total_boxes = total_boxes[pick, :]
             total_boxes = bbreg(total_boxes.copy(), np.transpose(mv[:, pick]))
             total_boxes = rerec(total_boxes.copy())
@@ -394,8 +437,15 @@ def detect_face(img, minsize, pnet, rnet, onet, threshold, factor):
         tempimg = np.zeros((48, 48, 3, numbox))
         for k in range(0, numbox):
             tmp = np.zeros((int(tmph[k]), int(tmpw[k]), 3))
-            tmp[dy[k] - 1:edy[k], dx[k] - 1:edx[k], :] = img[y[k] - 1:ey[k], x[k] - 1:ex[k], :]
-            if tmp.shape[0] > 0 and tmp.shape[1] > 0 or tmp.shape[0] == 0 and tmp.shape[1] == 0:
+            tmp[dy[k] - 1 : edy[k], dx[k] - 1 : edx[k], :] = img[
+                y[k] - 1 : ey[k], x[k] - 1 : ex[k], :
+            ]
+            if (
+                tmp.shape[0] > 0
+                and tmp.shape[1] > 0
+                or tmp.shape[0] == 0
+                and tmp.shape[1] == 0
+            ):
                 tempimg[:, :, :, k] = imresample(tmp, (48, 48))
             else:
                 return np.empty()
@@ -409,23 +459,33 @@ def detect_face(img, minsize, pnet, rnet, onet, threshold, factor):
         points = out1
         ipass = np.where(score > threshold[2])
         points = points[:, ipass[0]]
-        total_boxes = np.hstack([total_boxes[ipass[0], 0:4].copy(), np.expand_dims(score[ipass].copy(), 1)])
+        total_boxes = np.hstack(
+            [total_boxes[ipass[0], 0:4].copy(), np.expand_dims(score[ipass].copy(), 1)]
+        )
         mv = out0[:, ipass[0]]
 
         w = total_boxes[:, 2] - total_boxes[:, 0] + 1
         h = total_boxes[:, 3] - total_boxes[:, 1] + 1
-        points[0:5, :] = np.tile(w, (5, 1)) * points[0:5, :] + np.tile(total_boxes[:, 0], (5, 1)) - 1
-        points[5:10, :] = np.tile(h, (5, 1)) * points[5:10, :] + np.tile(total_boxes[:, 1], (5, 1)) - 1
+        points[0:5, :] = (
+            np.tile(w, (5, 1)) * points[0:5, :] + np.tile(total_boxes[:, 0], (5, 1)) - 1
+        )
+        points[5:10, :] = (
+            np.tile(h, (5, 1)) * points[5:10, :]
+            + np.tile(total_boxes[:, 1], (5, 1))
+            - 1
+        )
         if total_boxes.shape[0] > 0:
             total_boxes = bbreg(total_boxes.copy(), np.transpose(mv))
-            pick = nms(total_boxes.copy(), 0.7, 'Min')
+            pick = nms(total_boxes.copy(), 0.7, "Min")
             total_boxes = total_boxes[pick, :]
             points = points[:, pick]
 
     return total_boxes, points
 
 
-def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, threshold, factor):
+def bulk_detect_face(
+    images, detection_window_size_ratio, pnet, rnet, onet, threshold, factor
+):
     # im: input image
     # minsize: minimum of faces' size
     # pnet, rnet, onet: caffemodel
@@ -435,7 +495,7 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
     images_with_boxes = [None] * len(images)
 
     for i in range(len(images)):
-        images_with_boxes[i] = {'total_boxes': np.empty((0, 9))}
+        images_with_boxes[i] = {"total_boxes": np.empty((0, 9))}
 
     # create scale pyramid
     for index, img in enumerate(images):
@@ -476,61 +536,82 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
 
             im_data = imresample(images[index], (hs, ws))
             im_data = (im_data - 127.5) * 0.0078125
-            img_y = np.transpose(im_data, (1, 0, 2))  # caffe uses different dimensions ordering
-            images_obj_per_resolution[(ws, hs)].append({'scale': scale, 'image': img_y, 'index': index})
+            img_y = np.transpose(
+                im_data, (1, 0, 2)
+            )  # caffe uses different dimensions ordering
+            images_obj_per_resolution[(ws, hs)].append(
+                {"scale": scale, "image": img_y, "index": index}
+            )
 
     for resolution in images_obj_per_resolution:
-        images_per_resolution = [i['image'] for i in images_obj_per_resolution[resolution]]
+        images_per_resolution = [
+            i["image"] for i in images_obj_per_resolution[resolution]
+        ]
         outs = pnet(images_per_resolution)
 
         for index in range(len(outs[0])):
-            scale = images_obj_per_resolution[resolution][index]['scale']
-            image_index = images_obj_per_resolution[resolution][index]['index']
+            scale = images_obj_per_resolution[resolution][index]["scale"]
+            image_index = images_obj_per_resolution[resolution][index]["index"]
             out0 = np.transpose(outs[0][index], (1, 0, 2))
             out1 = np.transpose(outs[1][index], (1, 0, 2))
 
-            boxes, _ = generateBoundingBox(out1[:, :, 1].copy(), out0[:, :, :].copy(), scale, threshold[0])
+            boxes, _ = generateBoundingBox(
+                out1[:, :, 1].copy(), out0[:, :, :].copy(), scale, threshold[0]
+            )
 
             # inter-scale nms
-            pick = nms(boxes.copy(), 0.5, 'Union')
+            pick = nms(boxes.copy(), 0.5, "Union")
             if boxes.size > 0 and pick.size > 0:
                 boxes = boxes[pick, :]
-                images_with_boxes[image_index]['total_boxes'] = np.append(images_with_boxes[image_index]['total_boxes'],
-                                                                          boxes,
-                                                                          axis=0)
+                images_with_boxes[image_index]["total_boxes"] = np.append(
+                    images_with_boxes[image_index]["total_boxes"], boxes, axis=0
+                )
 
     for index, image_obj in enumerate(images_with_boxes):
-        numbox = image_obj['total_boxes'].shape[0]
+        numbox = image_obj["total_boxes"].shape[0]
         if numbox > 0:
             h = images[index].shape[0]
             w = images[index].shape[1]
-            pick = nms(image_obj['total_boxes'].copy(), 0.7, 'Union')
-            image_obj['total_boxes'] = image_obj['total_boxes'][pick, :]
-            regw = image_obj['total_boxes'][:, 2] - image_obj['total_boxes'][:, 0]
-            regh = image_obj['total_boxes'][:, 3] - image_obj['total_boxes'][:, 1]
-            qq1 = image_obj['total_boxes'][:, 0] + image_obj['total_boxes'][:, 5] * regw
-            qq2 = image_obj['total_boxes'][:, 1] + image_obj['total_boxes'][:, 6] * regh
-            qq3 = image_obj['total_boxes'][:, 2] + image_obj['total_boxes'][:, 7] * regw
-            qq4 = image_obj['total_boxes'][:, 3] + image_obj['total_boxes'][:, 8] * regh
-            image_obj['total_boxes'] = np.transpose(np.vstack([qq1, qq2, qq3, qq4, image_obj['total_boxes'][:, 4]]))
-            image_obj['total_boxes'] = rerec(image_obj['total_boxes'].copy())
-            image_obj['total_boxes'][:, 0:4] = np.fix(image_obj['total_boxes'][:, 0:4]).astype(np.int32)
-            dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph = pad(image_obj['total_boxes'].copy(), w, h)
+            pick = nms(image_obj["total_boxes"].copy(), 0.7, "Union")
+            image_obj["total_boxes"] = image_obj["total_boxes"][pick, :]
+            regw = image_obj["total_boxes"][:, 2] - image_obj["total_boxes"][:, 0]
+            regh = image_obj["total_boxes"][:, 3] - image_obj["total_boxes"][:, 1]
+            qq1 = image_obj["total_boxes"][:, 0] + image_obj["total_boxes"][:, 5] * regw
+            qq2 = image_obj["total_boxes"][:, 1] + image_obj["total_boxes"][:, 6] * regh
+            qq3 = image_obj["total_boxes"][:, 2] + image_obj["total_boxes"][:, 7] * regw
+            qq4 = image_obj["total_boxes"][:, 3] + image_obj["total_boxes"][:, 8] * regh
+            image_obj["total_boxes"] = np.transpose(
+                np.vstack([qq1, qq2, qq3, qq4, image_obj["total_boxes"][:, 4]])
+            )
+            image_obj["total_boxes"] = rerec(image_obj["total_boxes"].copy())
+            image_obj["total_boxes"][:, 0:4] = np.fix(
+                image_obj["total_boxes"][:, 0:4]
+            ).astype(np.int32)
+            dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph = pad(
+                image_obj["total_boxes"].copy(), w, h
+            )
 
-            numbox = image_obj['total_boxes'].shape[0]
+            numbox = image_obj["total_boxes"].shape[0]
             tempimg = np.zeros((24, 24, 3, numbox))
 
             if numbox > 0:
                 for k in range(0, numbox):
                     tmp = np.zeros((int(tmph[k]), int(tmpw[k]), 3))
-                    tmp[dy[k] - 1:edy[k], dx[k] - 1:edx[k], :] = images[index][y[k] - 1:ey[k], x[k] - 1:ex[k], :]
-                    if tmp.shape[0] > 0 and tmp.shape[1] > 0 or tmp.shape[0] == 0 and tmp.shape[1] == 0:
+                    tmp[dy[k] - 1 : edy[k], dx[k] - 1 : edx[k], :] = images[index][
+                        y[k] - 1 : ey[k], x[k] - 1 : ex[k], :
+                    ]
+                    if (
+                        tmp.shape[0] > 0
+                        and tmp.shape[1] > 0
+                        or tmp.shape[0] == 0
+                        and tmp.shape[1] == 0
+                    ):
                         tempimg[:, :, :, k] = imresample(tmp, (24, 24))
                     else:
                         return np.empty()
 
                 tempimg = (tempimg - 127.5) * 0.0078125
-                image_obj['rnet_input'] = np.transpose(tempimg, (3, 1, 0, 2))
+                image_obj["rnet_input"] = np.transpose(tempimg, (3, 1, 0, 2))
 
     # # # # # # # # # # # # #
     # second stage - refinement of face candidates with rnet
@@ -538,8 +619,10 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
 
     bulk_rnet_input = np.empty((0, 24, 24, 3))
     for index, image_obj in enumerate(images_with_boxes):
-        if 'rnet_input' in image_obj:
-            bulk_rnet_input = np.append(bulk_rnet_input, image_obj['rnet_input'], axis=0)
+        if "rnet_input" in image_obj:
+            bulk_rnet_input = np.append(
+                bulk_rnet_input, image_obj["rnet_input"], axis=0
+            )
 
     out = rnet(bulk_rnet_input)
     out0 = np.transpose(out[0])
@@ -548,43 +631,60 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
 
     i = 0
     for index, image_obj in enumerate(images_with_boxes):
-        if 'rnet_input' not in image_obj:
+        if "rnet_input" not in image_obj:
             continue
 
-        rnet_input_count = image_obj['rnet_input'].shape[0]
-        score_per_image = score[i:i + rnet_input_count]
-        out0_per_image = out0[:, i:i + rnet_input_count]
+        rnet_input_count = image_obj["rnet_input"].shape[0]
+        score_per_image = score[i : i + rnet_input_count]
+        out0_per_image = out0[:, i : i + rnet_input_count]
 
         ipass = np.where(score_per_image > threshold[1])
-        image_obj['total_boxes'] = np.hstack([image_obj['total_boxes'][ipass[0], 0:4].copy(),
-                                              np.expand_dims(score_per_image[ipass].copy(), 1)])
+        image_obj["total_boxes"] = np.hstack(
+            [
+                image_obj["total_boxes"][ipass[0], 0:4].copy(),
+                np.expand_dims(score_per_image[ipass].copy(), 1),
+            ]
+        )
 
         mv = out0_per_image[:, ipass[0]]
 
-        if image_obj['total_boxes'].shape[0] > 0:
+        if image_obj["total_boxes"].shape[0] > 0:
             h = images[index].shape[0]
             w = images[index].shape[1]
-            pick = nms(image_obj['total_boxes'], 0.7, 'Union')
-            image_obj['total_boxes'] = image_obj['total_boxes'][pick, :]
-            image_obj['total_boxes'] = bbreg(image_obj['total_boxes'].copy(), np.transpose(mv[:, pick]))
-            image_obj['total_boxes'] = rerec(image_obj['total_boxes'].copy())
+            pick = nms(image_obj["total_boxes"], 0.7, "Union")
+            image_obj["total_boxes"] = image_obj["total_boxes"][pick, :]
+            image_obj["total_boxes"] = bbreg(
+                image_obj["total_boxes"].copy(), np.transpose(mv[:, pick])
+            )
+            image_obj["total_boxes"] = rerec(image_obj["total_boxes"].copy())
 
-            numbox = image_obj['total_boxes'].shape[0]
+            numbox = image_obj["total_boxes"].shape[0]
 
             if numbox > 0:
                 tempimg = np.zeros((48, 48, 3, numbox))
-                image_obj['total_boxes'] = np.fix(image_obj['total_boxes']).astype(np.int32)
-                dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph = pad(image_obj['total_boxes'].copy(), w, h)
+                image_obj["total_boxes"] = np.fix(image_obj["total_boxes"]).astype(
+                    np.int32
+                )
+                dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph = pad(
+                    image_obj["total_boxes"].copy(), w, h
+                )
 
                 for k in range(0, numbox):
                     tmp = np.zeros((int(tmph[k]), int(tmpw[k]), 3))
-                    tmp[dy[k] - 1:edy[k], dx[k] - 1:edx[k], :] = images[index][y[k] - 1:ey[k], x[k] - 1:ex[k], :]
-                    if tmp.shape[0] > 0 and tmp.shape[1] > 0 or tmp.shape[0] == 0 and tmp.shape[1] == 0:
+                    tmp[dy[k] - 1 : edy[k], dx[k] - 1 : edx[k], :] = images[index][
+                        y[k] - 1 : ey[k], x[k] - 1 : ex[k], :
+                    ]
+                    if (
+                        tmp.shape[0] > 0
+                        and tmp.shape[1] > 0
+                        or tmp.shape[0] == 0
+                        and tmp.shape[1] == 0
+                    ):
                         tempimg[:, :, :, k] = imresample(tmp, (48, 48))
                     else:
                         return np.empty()
                 tempimg = (tempimg - 127.5) * 0.0078125
-                image_obj['onet_input'] = np.transpose(tempimg, (3, 1, 0, 2))
+                image_obj["onet_input"] = np.transpose(tempimg, (3, 1, 0, 2))
 
         i += rnet_input_count
 
@@ -594,8 +694,10 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
 
     bulk_onet_input = np.empty((0, 48, 48, 3))
     for index, image_obj in enumerate(images_with_boxes):
-        if 'onet_input' in image_obj:
-            bulk_onet_input = np.append(bulk_onet_input, image_obj['onet_input'], axis=0)
+        if "onet_input" in image_obj:
+            bulk_onet_input = np.append(
+                bulk_onet_input, image_obj["onet_input"], axis=0
+            )
 
     out = onet(bulk_onet_input)
 
@@ -608,37 +710,49 @@ def bulk_detect_face(images, detection_window_size_ratio, pnet, rnet, onet, thre
     i = 0
     ret = []
     for index, image_obj in enumerate(images_with_boxes):
-        if 'onet_input' not in image_obj:
+        if "onet_input" not in image_obj:
             ret.append(None)
             continue
 
-        onet_input_count = image_obj['onet_input'].shape[0]
+        onet_input_count = image_obj["onet_input"].shape[0]
 
-        out0_per_image = out0[:, i:i + onet_input_count]
-        score_per_image = score[i:i + onet_input_count]
-        points_per_image = points[:, i:i + onet_input_count]
+        out0_per_image = out0[:, i : i + onet_input_count]
+        score_per_image = score[i : i + onet_input_count]
+        points_per_image = points[:, i : i + onet_input_count]
 
         ipass = np.where(score_per_image > threshold[2])
         points_per_image = points_per_image[:, ipass[0]]
 
-        image_obj['total_boxes'] = np.hstack([image_obj['total_boxes'][ipass[0], 0:4].copy(),
-                                              np.expand_dims(score_per_image[ipass].copy(), 1)])
+        image_obj["total_boxes"] = np.hstack(
+            [
+                image_obj["total_boxes"][ipass[0], 0:4].copy(),
+                np.expand_dims(score_per_image[ipass].copy(), 1),
+            ]
+        )
         mv = out0_per_image[:, ipass[0]]
 
-        w = image_obj['total_boxes'][:, 2] - image_obj['total_boxes'][:, 0] + 1
-        h = image_obj['total_boxes'][:, 3] - image_obj['total_boxes'][:, 1] + 1
-        points_per_image[0:5, :] = np.tile(w, (5, 1)) * points_per_image[0:5, :] + np.tile(
-            image_obj['total_boxes'][:, 0], (5, 1)) - 1
-        points_per_image[5:10, :] = np.tile(h, (5, 1)) * points_per_image[5:10, :] + np.tile(
-            image_obj['total_boxes'][:, 1], (5, 1)) - 1
+        w = image_obj["total_boxes"][:, 2] - image_obj["total_boxes"][:, 0] + 1
+        h = image_obj["total_boxes"][:, 3] - image_obj["total_boxes"][:, 1] + 1
+        points_per_image[0:5, :] = (
+            np.tile(w, (5, 1)) * points_per_image[0:5, :]
+            + np.tile(image_obj["total_boxes"][:, 0], (5, 1))
+            - 1
+        )
+        points_per_image[5:10, :] = (
+            np.tile(h, (5, 1)) * points_per_image[5:10, :]
+            + np.tile(image_obj["total_boxes"][:, 1], (5, 1))
+            - 1
+        )
 
-        if image_obj['total_boxes'].shape[0] > 0:
-            image_obj['total_boxes'] = bbreg(image_obj['total_boxes'].copy(), np.transpose(mv))
-            pick = nms(image_obj['total_boxes'].copy(), 0.7, 'Min')
-            image_obj['total_boxes'] = image_obj['total_boxes'][pick, :]
+        if image_obj["total_boxes"].shape[0] > 0:
+            image_obj["total_boxes"] = bbreg(
+                image_obj["total_boxes"].copy(), np.transpose(mv)
+            )
+            pick = nms(image_obj["total_boxes"].copy(), 0.7, "Min")
+            image_obj["total_boxes"] = image_obj["total_boxes"][pick, :]
             points_per_image = points_per_image[:, pick]
 
-            ret.append((image_obj['total_boxes'], points_per_image))
+            ret.append((image_obj["total_boxes"], points_per_image))
         else:
             ret.append(None)
 
@@ -715,7 +829,7 @@ def nms(boxes, threshold, method):
         w = np.maximum(0.0, xx2 - xx1 + 1)
         h = np.maximum(0.0, yy2 - yy1 + 1)
         inter = w * h
-        if method is 'Min':
+        if method is "Min":
             o = inter / np.minimum(area[i], area[idx])
         else:
             o = inter / (area[i] + area[idx] - inter)
@@ -773,10 +887,13 @@ def rerec(bboxA):
 
 
 def imresample(img, sz):
-    im_data = cv2.resize(img, (sz[1], sz[0]), interpolation=cv2.INTER_AREA)  # @UndefinedVariable
+    im_data = cv2.resize(
+        img, (sz[1], sz[0]), interpolation=cv2.INTER_AREA
+    )  # @UndefinedVariable
     return im_data
 
     # This method is kept for debugging purpose
+
 
 #     h=img.shape[0]
 #     w=img.shape[1]
